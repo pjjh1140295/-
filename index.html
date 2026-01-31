@@ -43,7 +43,7 @@
         }
         .unified-cluster:active { transform: scale(0.95); }
 
-        /* 單點圖示樣式 - 修正 1: 移除白框 */
+        /* 單點圖示樣式 */
         .custom-marker-pin {
             display: flex;
             align-items: center;
@@ -53,7 +53,6 @@
             box-shadow: 0 3px 6px rgba(0,0,0,0.3);
             font-size: 16px;
             transition: transform 0.2s;
-            /* border: 2px solid white; 移除此行 */
         }
 
         /* 載入動畫 */
@@ -76,7 +75,7 @@
         }
         .leaflet-popup-content {
             margin: 0;
-            width: 280px !important; /* 稍微加寬以容納更多資訊 */
+            width: 280px !important;
         }
         
         .filter-chip { transition: all 0.2s; font-size: 0.9rem; }
@@ -97,7 +96,6 @@
         
         <!-- 標題與按鈕 -->
         <div class="flex justify-between items-center mb-4 sticky top-0 bg-white z-10 pb-2">
-            <!-- 修正 4: 移除標題背景色 -->
             <h1 class="text-xl font-bold text-gray-800 flex items-center gap-1">
                 <span class="text-green-600"><i class="fa-solid fa-leaf"></i></span>
                 綠色地圖
@@ -109,7 +107,6 @@
 
         <!-- 篩選類別 -->
         <div id="filter-container" class="opacity-50 pointer-events-none transition-opacity duration-300">
-            <!-- 修正 2: 移除「全部」按鈕 -->
             <div class="flex flex-wrap gap-2 justify-start" id="filter-scroll">
                 <button onclick="toggleFilter('recycling')" class="filter-chip px-3 py-2 rounded-full font-medium bg-gray-100 text-gray-600 border border-gray-200" data-type="recycling">
                     <i class="fa-solid fa-recycle text-green-500 mr-1"></i> 回收站
@@ -188,19 +185,28 @@
             map.addLayer(markerClusterGroup);
         }
 
-        // --- 定位 ---
+        // --- 定位 (移除所有 Demo/Fallback 邏輯) ---
         btnLocate.addEventListener('click', () => {
-            showStatus('定位中...', true);
-            if (!navigator.geolocation) { showStatus('不支援定位', false); return; }
+            showStatus('正在定位中...', true);
+            
+            if (!navigator.geolocation) { 
+                showStatus('您的裝置不支援定位功能', false); 
+                return; 
+            }
             
             navigator.geolocation.getCurrentPosition(
                 (pos) => handleLocationSuccess(pos.coords.latitude, pos.coords.longitude),
                 (err) => {
                     console.error(err);
-                    showStatus('定位失敗，切換至演示點', false);
-                    setTimeout(() => handleLocationSuccess(25.0330, 121.5350), 1000);
+                    let msg = '定位失敗，請重試';
+                    if (err.code === 1) msg = '請允許定位權限以使用此功能';
+                    else if (err.code === 2) msg = '無法取得目前位置';
+                    else if (err.code === 3) msg = '定位連線逾時';
+                    
+                    showStatus(msg, false);
+                    // 這裡不再切換至演示點，直接停止
                 },
-                { enableHighAccuracy: true }
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
             );
         });
 
@@ -250,7 +256,7 @@
                 processData(data.elements);
             } catch (e) {
                 console.error(e);
-                showStatus('資料載入失敗', false);
+                showStatus('資料載入失敗，請檢查網路', false);
             }
         }
 
@@ -268,13 +274,16 @@
 
                 let displayName = tags.name;
                 const op = tags.operator || tags.brand;
+                const catName = getCategoryName(category);
 
-                // 修正 3: 過濾掉完全未命名的地點
+                // 智慧命名邏輯
                 if (!displayName) {
                     if (op) {
-                        displayName = `${op} ${getCategoryName(category)}`;
+                        displayName = `${op} ${catName}`;
+                    } else if (tags['addr:housename']) {
+                        displayName = `${tags['addr:housename']} ${catName}`;
                     } else {
-                        return; // 如果沒有名字也沒有營運者，直接捨棄 (不顯示)
+                        displayName = catName;
                     }
                 }
 
@@ -286,7 +295,6 @@
                 if (tags['addr:housenumber']) address += tags['addr:housenumber'];
                 if (!address && tags.location) address = tags.location;
 
-                // 修正 5: 準備更多詳細資訊
                 const details = {
                     phone: tags.phone || tags['contact:phone'],
                     website: tags.website || tags['contact:website'] || tags.facebook,
@@ -306,13 +314,20 @@
             });
 
             renderMarkers('all');
-            showStatus(`找到 ${fetchedData.length} 個地點`, false);
-            setTimeout(() => hideStatus(), 3000);
+            
+            if (fetchedData.length === 0) {
+                showStatus('附近沒有找到相關地點', false);
+            } else {
+                showStatus(`找到 ${fetchedData.length} 個地點`, false);
+                setTimeout(() => hideStatus(), 3000);
+            }
+
+            // 更新按鈕狀態：搜尋完成後，文字改為「重新搜尋」，圖示改為旋轉
+            btnLocate.innerHTML = '<i class="fa-solid fa-rotate-right"></i> 重新搜尋';
         }
 
         // --- 邏輯與渲染 ---
         function toggleFilter(type) {
-            // 修正 2: 點擊目前已選取的 -> 取消 (變回 all)；否則 -> 選取該類別
             if (currentFilter === type) {
                 currentFilter = 'all';
             } else {
@@ -340,14 +355,12 @@
                 if (filterType !== 'all' && item.category !== filterType) return;
 
                 const style = item.style;
-                // 修正 1: 移除白框的視覺干擾 (在 CSS 已處理)
                 const markerHtml = `<div class="custom-marker-pin ${style.color} w-10 h-10"><i class="fa-solid ${style.icon}"></i></div>`;
                 
                 const customIcon = L.divIcon({
                     html: markerHtml, className: '', iconSize: [40, 40], iconAnchor: [20, 40], popupAnchor: [0, -45]
                 });
 
-                // 修正 5: 豐富的彈窗內容
                 let detailsHtml = '';
                 if (item.address) detailsHtml += `<div class="text-sm text-gray-600 mb-1"><i class="fa-solid fa-location-dot w-4 text-center text-gray-400"></i> ${item.address}</div>`;
                 if (item.details.opening_hours) detailsHtml += `<div class="text-sm text-green-600 mb-1"><i class="fa-regular fa-clock w-4 text-center"></i> ${item.details.opening_hours}</div>`;
