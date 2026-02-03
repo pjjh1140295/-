@@ -38,7 +38,7 @@
             align-items: center;
             justify-content: center;
             box-shadow: 0 4px 10px rgba(16, 185, 129, 0.4);
-            border: 2px solid white;
+            border: none;
             transition: all 0.3s ease;
         }
         .unified-cluster:active { transform: scale(0.95); }
@@ -68,14 +68,22 @@
 
         /* PopUp 美化 */
         .leaflet-popup-content-wrapper {
-            border-radius: 12px;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
             padding: 0;
             overflow: hidden;
         }
         .leaflet-popup-content {
             margin: 0;
             width: 280px !important;
+        }
+        /* 移除 popup 預設的 margin 讓內容貼邊 */
+        .leaflet-container a.leaflet-popup-close-button {
+            top: 10px;
+            right: 10px;
+            color: #666;
+            font-size: 18px;
+            z-index: 10;
         }
         
         .filter-chip { transition: all 0.2s; font-size: 0.9rem; }
@@ -118,6 +126,11 @@
                 
                 <button onclick="toggleFilter('toilets')" class="filter-chip px-3 py-2 rounded-full font-medium bg-gray-100 text-gray-600 border border-gray-200" data-type="toilets">
                     <i class="fa-solid fa-restroom text-gray-500 mr-1"></i> 廁所
+                </button>
+
+                <!-- 新增公車站篩選 -->
+                <button onclick="toggleFilter('bus')" class="filter-chip px-3 py-2 rounded-full font-medium bg-gray-100 text-gray-600 border border-gray-200" data-type="bus">
+                    <i class="fa-solid fa-bus text-indigo-500 mr-1"></i> 公車站
                 </button>
                 
                 <button onclick="toggleFilter('restaurant')" class="filter-chip px-3 py-2 rounded-full font-medium bg-gray-100 text-gray-600 border border-gray-200" data-type="restaurant">
@@ -185,12 +198,15 @@
             map.addLayer(markerClusterGroup);
         }
 
-        // --- 定位 (移除所有 Demo/Fallback 邏輯) ---
+        // --- 定位 ---
         btnLocate.addEventListener('click', () => {
             showStatus('正在定位中...', true);
             
+            // 邏輯修正：只要點擊開始，就預備轉變為「重新搜尋」，避免因為失敗而停留在「開始搜尋」
+            
             if (!navigator.geolocation) { 
                 showStatus('您的裝置不支援定位功能', false); 
+                updateButtonToRetry(); // 即使不支援也更新按鈕，讓使用者知道動作結束
                 return; 
             }
             
@@ -199,12 +215,11 @@
                 (err) => {
                     console.error(err);
                     let msg = '定位失敗，請重試';
-                    if (err.code === 1) msg = '請允許定位權限以使用此功能';
+                    if (err.code === 1) msg = '請允許定位權限';
                     else if (err.code === 2) msg = '無法取得目前位置';
                     else if (err.code === 3) msg = '定位連線逾時';
-                    
                     showStatus(msg, false);
-                    // 這裡不再切換至演示點，直接停止
+                    updateButtonToRetry(); // 定位失敗也更新按鈕
                 },
                 { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
             );
@@ -246,6 +261,7 @@
                   nwr["amenity"="bicycle_rental"](around:${SEARCH_RADIUS},${lat},${lng});
                   nwr["amenity"="charging_station"](around:${SEARCH_RADIUS},${lat},${lng});
                   nwr["shop"="second_hand"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nwr["highway"="bus_stop"](around:${SEARCH_RADIUS},${lat},${lng});
                 );
                 out center; 
             `;
@@ -257,6 +273,7 @@
             } catch (e) {
                 console.error(e);
                 showStatus('資料載入失敗，請檢查網路', false);
+                updateButtonToRetry(); // 資料載入失敗也更新按鈕
             }
         }
 
@@ -322,7 +339,11 @@
                 setTimeout(() => hideStatus(), 3000);
             }
 
-            // 更新按鈕狀態：搜尋完成後，文字改為「重新搜尋」，圖示改為旋轉
+            updateButtonToRetry(); // 成功後更新按鈕
+        }
+
+        // 新增：統一更新按鈕狀態函式
+        function updateButtonToRetry() {
             btnLocate.innerHTML = '<i class="fa-solid fa-rotate-right"></i> 重新搜尋';
         }
 
@@ -368,13 +389,25 @@
                 if (item.details.website) detailsHtml += `<div class="text-sm text-blue-500 mb-1 truncate"><i class="fa-solid fa-globe w-4 text-center"></i> <a href="${item.details.website}" target="_blank">網站連結</a></div>`;
                 if (item.details.wheelchair === 'yes') detailsHtml += `<div class="text-xs text-purple-600 mt-2 bg-purple-50 inline-block px-2 py-1 rounded"><i class="fa-solid fa-wheelchair"></i> 無障礙友善</div>`;
 
+                const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`;
+
+                // PopUp 修正：強制加入 style="color: white !important" 確保文字全白
                 const popupContent = `
-                    <div class="flex flex-col">
+                    <div class="flex flex-col relative pb-1">
                         <div class="bg-gray-50 p-3 border-b border-gray-100">
-                            <h3 class="font-bold text-gray-800 text-base leading-tight">${item.name}</h3>
+                            <h3 class="font-bold text-gray-800 text-base leading-tight pr-6">${item.name}</h3>
                             <span class="text-xs text-gray-500 mt-1 inline-block bg-white border px-2 py-0.5 rounded-full">${getCategoryName(item.category)}</span>
                         </div>
-                        <div class="p-3">${detailsHtml || '<span class="text-gray-400 text-sm">無詳細資訊</span>'}</div>
+                        <div class="p-3 mb-2">
+                            ${detailsHtml || '<span class="text-gray-400 text-sm">無詳細資訊</span>'}
+                        </div>
+                        <div class="flex justify-end px-3 pb-3">
+                            <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" 
+                               style="color: white !important;" 
+                               class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-sm flex items-center gap-1 transition-colors">
+                                <i class="fa-solid fa-location-arrow" style="color: white;"></i> 導航
+                            </a>
+                        </div>
                     </div>
                 `;
 
@@ -391,11 +424,12 @@
             if (tags.leisure === 'park' || tags.leisure === 'garden') return 'park';
             if (tags.amenity === 'bicycle_rental' || tags.amenity === 'charging_station') return 'bicycle';
             if (tags.shop === 'second_hand') return 'secondhand';
+            if (tags.highway === 'bus_stop' || tags.public_transport === 'platform') return 'bus'; // 公車站
             return 'unknown';
         }
 
         function getCategoryName(cat) {
-            const map = { 'recycling': '回收站', 'drinking_water': '飲水機', 'toilets': '廁所', 'restaurant': '餐廳', 'park': '公園', 'bicycle': '交通', 'secondhand': '二手' };
+            const map = { 'recycling': '回收站', 'drinking_water': '飲水機', 'toilets': '廁所', 'restaurant': '餐廳', 'park': '公園', 'bicycle': '交通', 'secondhand': '二手', 'bus': '公車站' };
             return map[cat] || '地點';
         }
 
@@ -407,7 +441,8 @@
                 'restaurant': { color: 'bg-orange-500', icon: 'fa-utensils' },
                 'park': { color: 'bg-emerald-600', icon: 'fa-tree' },
                 'bicycle': { color: 'bg-yellow-500', icon: 'fa-bicycle' },
-                'secondhand': { color: 'bg-purple-500', icon: 'fa-shirt' }
+                'secondhand': { color: 'bg-purple-500', icon: 'fa-shirt' },
+                'bus': { color: 'bg-indigo-500', icon: 'fa-bus' }
             };
             return styles[cat] || { color: 'bg-gray-400', icon: 'fa-map-pin' };
         }
